@@ -1,209 +1,67 @@
-# 2023/5/30 Acc = 92.01% Basic NN model
+from models.nn_model_v2 import check_all_attr, dataload_preprocessing
+from models.nn_model_v2 import Net, Edu_Data
+from models.nn_model_v2 import criterion
+from models.nn_model_v2 import train, validate, test, best_validation_loss
+from models.nn_model_v2 import show_data,plot_decision_regions_2class
+import time, torch
+from torch.utils.data import DataLoader, random_split
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import math
-import numpy as np
-import pandas as pd
-import time
-import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, Dataset, random_split
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, Normalizer
-from torchviz import make_dot
-from torchsummary import summary
+""" 변경해볼만한 변수들
+1. non_use_attr: 주어진 데이터셋에서 학습에 활용하지 않을 설명변수명을 입력 -> 설명변수 조건 다양화, 성능과 큰 관련을 갖는 설명변수를 찾을 수 있음.
+2. epochs: 모델이 전체 데이터셋을 학습하는 횟수 -> 큰 값으로 설정할수록 훈련시간 증가
+3. batch_size: 모델이 학습할때 한번에 모든 데이터를 학습하는게 아니라, 분할해 학습하게 됩니다. 이때 분할의 유닛사이즈를 의미합니다. 
+                -> 값이 작을수록 세밀하게 데이터를 학습할 수 있지만, 세밀한 학습이 정확도 향상을 항상 보장하진 않습니다.
+4. optimizer: 모델의 추론 오류를 개선(반영)하는 방식 -> 다른 훈련파라미터들과 함께 조합해 사용. SGD, ADAM, AdaDelta 가 일반적으로 좋은 성능을 냄
+"""
 
-torch.manual_seed(7)
+# data loading and preprocessing
+# check_all_attr() # 주석을 해제해 모든 데이터 특성이름을 확인하세요.
+non_use_attr =['age','agesq']
+# non_use_attr = [
+#     'g11ses' , 'g9ses' , 'g11math',
+#     'g9math' , 'hs_par' , 'lfaminc0811' , 'twoparguar' , 'singlepar',
+#     'lesshalf' , 'g9nonnative' , 'g9partalkclg' , 'g9schtalkclg' , 'g11catholic',
+#     'g11otherprivate' , 'g9catholic' , 'g9otherprivate' , 'g11city' , 'g11suburb',
+#     'g11town' , 'g11northeast' , 'g11midwest' , 'g11south' , 'g9city',
+#     'g9suburb' , 'g9town' , 'g9northeast' , 'g9midwest' , 'g9south',
+#     'm_s2controlsborn_yes' , 's2mcontrolsborn_yes' , 'm_s2controlsstoptrying_yes' , 's2mcontrolsstoptrying_yes' , 'm_s2controlschallenge_yes' ,      
+#     's2mcontrolschallenge_yes' , 'repeatg9' , 'high_sci_nosci' , 'high_sci_gensci' , 'high_sci_spesci',
+#     'high_sci_advsci' , 'high_sci_apib' , 'exp9ed_dontknow' , 'exp9ed_hs' , 'exp9ed_aa',
+#     'exp9ed_ba' , 'exp9ed_grad' , 'exp11ed_hsbroad' , 'exp11ed_aa' , 'exp11ed_ba',
+#     'exp11ed_grad' , 'req_ed_occ09_notknow' , 'reqed_occ09_hs' , 'reqed_occ09_aa' , 'reqed_occ09_ba',
+#     'reqed_occ09_grad' , 'req_ed_occ12_notknow' , 'reqed_occ12_hs' , 'reqed_occ12_aa' , 'reqed_occ12_ba',
+#     'reqed_occ12_grad']
+X, y = dataload_preprocessing(non_use_attr)
+#==
 
-def dataload_preprocessing(filename):
-    df = pd.read_csv(filename)
-    data = df.values
+# preparation for training/testing
+batch_size = 32
 
-    # NaN data pre-processing
-    for i, item in enumerate (data):
-         for j, item2 in enumerate(item):
-             if math.isnan(item2) : data[i,j] = 0.0
-
-    y = np.asarray(data[:,0])
-    X = data[:,2:]
-
-    scaled_X = X[:,7:9]
-    scaler = StandardScaler().fit(scaled_X)
-    scaled_X = scaler.transform(scaled_X)
-    X[:,7:9] = scaled_X
-
-    scaled_X = X[:,9:11]
-    scaler = MinMaxScaler().fit(scaled_X)
-    scaled_X = scaler.transform(scaled_X)
-    X[:,9:11] = scaled_X
-
-    scaled_X = X[:,12].reshape(-1, 1)
-    scaler = MinMaxScaler().fit(scaled_X)
-    scaled_X = scaler.transform(scaled_X)
-    X[:,12] =  scaled_X.reshape(1, -1)
-
-    scaled_X = X[:,5].reshape(-1, 1)
-    scaler = MinMaxScaler().fit(scaled_X)
-    scaled_X = scaler.transform(scaled_X)
-    X[:,5] =  scaled_X.reshape(1,-1)
-
-    scaled_X = X[:, 6].reshape(-1, 1)
-    scaler = MinMaxScaler().fit(scaled_X)
-    scaled_X = scaler.transform(scaled_X)
-    X[:,6] =  scaled_X.reshape(1,-1)
-
-    return X, y
-
-def show_data(dataset):
-    X = dataset[:][0].numpy()
-    y = dataset[:][1].numpy()
-    from sklearn.decomposition import PCA
-    pca = PCA(n_components=3)
-    clf = pca.fit_transform(X)
-
-    fig1 = plt.figure(figsize=(8,8))
-    ax = fig1.add_subplot(1,1,1, projection='3d')
-
-    ax.scatter(clf[y ==0,0], clf[y ==0,1], clf[y ==0,2], c='g', marker='o', label='y=0')
-    ax.scatter(clf[y ==1,0], clf[y ==1,1], clf[y ==1,2], c='r', marker='o', label='y=1')
-    plt.title("Data distribution")
-    plt.legend()
-    plt.show()
-
-
-def plot_decision_regions_2class(val_dataset):
-    x = val_dataset[:][0].numpy()
-    y = val_dataset[:][1].numpy()
-    from sklearn.decomposition import PCA
-    pca = PCA(n_components=2)
-    clf = pca.fit_transform(x)
-
-    h = .02
-    x_min, x_max = clf[:, 0].min() - 0.1, clf[:, 0].max() + 0.1
-    y_min, y_max = clf[:, 1].min() - 0.1, clf[:, 1].max() + 0.1
-    # y_min, y_max = y.min() - 0.1 , y.max() + 0.1
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
-    XX = torch.Tensor(np.c_[xx.ravel(), yy.ravel()])
-
-    fig2 = plt.figure(figsize=(8, 8))
-    plt.plot(clf[y == 0, 0], clf[y == 0, 1], 'o', label='y=0')
-    plt.plot(clf[y == 1, 0], clf[y == 1, 1], 'ro', label='y=1')
-    plt.title("decision region")
-    plt.legend()
-    plt.show()
-
-def show_model(model, data):
-    #### Summarize and Visualize NN model in graph
-    make_dot(model(data[0][0]), params=dict(model.named_parameters())).render('model_short', format='png')
-    summary(model, (64, input_dim))
-
-class Net(nn.Module):
-    # Constructor
-    def __init__(self, D_in, H, D_out):
-        super(Net, self).__init__()
-        # hidden layer
-        self.linear1 = nn.Linear(D_in, H)
-        self.dp1 = nn.Dropout(0.2)
-        self.linear2 = nn.Linear(H, 64)
-        self.linear3 = nn.Linear(64, D_out)
-
-    # Prediction
-    def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        x = self.dp1(x)
-        x = torch.relu(self.linear2(x))
-        x = self.linear3(x)
-
-        return x
-
-# Create dataset object
-class myData(Dataset):
-    # Constructor
-    def __init__(self, N_s=100):
-        self.x = X
-        self.y = y
-        self.len = X.shape[0]
-    # Getter
-    def __getitem__(self, index):
-        x = self.x[:][index]
-        y = self.y[index]
-        return torch.Tensor(x), torch.tensor(y, dtype=torch.long)
-    # Get Length
-    def __len__(self):
-        return self.len
-
-# Define the train model
-def train(model, criterion, train_loader, optimizer):
-    train_loss = 0
-    success =0
-    model.train()
-    for i, (x, y) in enumerate(train_loader):
-        pred = model(x)
-        loss = criterion(pred, y)
-        result = pred.argmax(dim=1, keepdim=True)
-        train_loss += loss
-        success += result.eq(y.view_as(result)).sum().item()
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    scheduler.step()
-    return train_loss/len(train_loader.dataset), success/len(train_loader.dataset)
-
-def validate(model, val_loader):
-    model.eval()
-    loss = 0
-    success =0
-    with torch.no_grad():
-        for x, y in val_loader:
-            pred = model(x)
-            loss += criterion(pred, y)
-            result = pred.argmax(dim=1, keepdim=True)
-            success += result.eq(y.view_as(result)).sum().item()
-    return loss/len(val_loader.dataset) , success/len(val_loader.dataset)
-
-def test(model, test_loader):
-    model.eval()
-    loss = 0
-    success =0
-    total_result = []
-    with torch.no_grad():
-        for x, y in test_loader:
-            pred = model(x)
-            loss += criterion(pred, y)
-            result = pred.argmax(dim=1, keepdim=True)
-            success += result.eq(y.view_as(result)).sum().item()
-
-            for i, item in enumerate(result):
-                if item == y[i]: total_result.append('pass')
-                else : total_result.append('fail')
-    return loss/len(test_loader.dataset) , success/len(test_loader.dataset), total_result
-
-#######  Main program
-
-input_dim = 66
-hidden_dim = 4068
-output_dim = 2
-model = Net(input_dim, hidden_dim, output_dim)
-
-learning_rate = 0.0001
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-scheduler = optim.lr_scheduler.LambdaLR(optimizer=optimizer, lr_lambda=lambda epoch: 0.95 ** epoch, last_epoch=-1, verbose=False)
-
-X, y = dataload_preprocessing(filename='00.dataset/HSLS_2023_short.csv')
-data_set = myData()
-
-train_size = int(len(X) * 0.8)
-val_size = int(train_size * 0.1)
+data_set = Edu_Data(X,y)
+train_size = int(len(X) * 0.7)
+val_size = int(train_size * 0.15)
 test_size = len(X) - train_size - val_size
-
 train_dataset, val_dataset, test_dataset = random_split(data_set, lengths=[train_size, val_size, test_size])
-train_loader = DataLoader(dataset=train_dataset, batch_size=64, shuffle=True)
-val_loader = DataLoader(dataset=val_dataset, batch_size=64, shuffle=True)
-test_loader = DataLoader(dataset=test_dataset, batch_size=64, shuffle=True)
+train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
+#==
 
-epochs =10
-best_validation_loss = float('inf')
+# model params declaration
+input_dim = len(X.columns)
+hidden_dim = 512
+dropout_r = 0.1
+output_dim = 2
+model = Net(input_dim, hidden_dim, output_dim, dropout=dropout_r)
+#==
+
+# Training process
+epochs = 30 # The number of repeation for training whole dataset
+learning_rate = 0.0001 # 
+# optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+# optimizer = torch.optim.Adadelta(model.parameters(), lr=learning_rate)
+
 
 for epoch in range (epochs):
     time_start = time.time()
@@ -222,13 +80,15 @@ for epoch in range (epochs):
     print(f'training loss: {train_loss:.3f} |  training accuracy: {train_accuracy * 100:.2f}%')
     print(f'validation loss: {validation_loss:.3f} |  validation accuracy: {validation_accuracy * 100:.2f}%')
     print()
+#==
 
+# best result
 best_model = torch.load('nnmodel.pt')
 test_loss, test_accuracy, result = test(best_model, test_loader)
 print(f'Test loss: {test_loss:.3f} | test: {test_accuracy * 100:.2f}%')
+#==
 
-show_model(model, data_set)
-show_data(data_set)
-plot_decision_regions_2class(test_dataset)
-
-
+# data analyses
+show_data(X, y)
+plot_decision_regions_2class(X, y)
+#==
