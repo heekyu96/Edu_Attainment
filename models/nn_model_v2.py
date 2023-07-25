@@ -21,7 +21,7 @@ def check_all_attr():
     n = attr.tolist()
     offset = 5
     print("")
-    print("==ALL data attributes==")
+    print("==Data attributes included==")
     for i in range(0, len(n), offset):	# 인덱스 0을 시작으로 n 길이의 전 까지, 10씩
 	    print(f'{i+1: 3d} ~{i+offset: 3d} | '," , ".join(["'"+x+"'" for x in n[i:i+offset]]))
     
@@ -79,9 +79,61 @@ def dataload_preprocessing(drops=[]):
     
     return X_df, y_df
 
+def dataload_preprocessing_svm(drops=[]):
+    df = pd.read_csv('dataset/HSLS_2023_short.csv')
+    data = df.values
+    attr = df.columns[2:]
+    # NaN data pre-processing
+    for i, item in enumerate(data):
+        for j, item2 in enumerate(item):
+            if math.isnan(item2): data[i, j] = 0.0
+
+    y = np.asarray(data[:, 0])
+    # y2 = np.abs(1 - y)
+    # label = np.vstack([y, y2]).transpose().tolist()
+
+    X = data[:, 2:]
+
+    scaled_X = X[:, 7:9]
+    scaler = StandardScaler().fit(scaled_X)
+    scaled_X = scaler.transform(scaled_X)
+    X[:, 7:9] = scaled_X
+
+    scaled_X = X[:, 9:11]
+    scaler = MinMaxScaler().fit(scaled_X)
+    scaled_X = scaler.transform(scaled_X)
+    X[:, 9:11] = scaled_X
+
+    scaled_X = X[:, 12].reshape(-1, 1)
+    scaler = MinMaxScaler().fit(scaled_X)
+    scaled_X = scaler.transform(scaled_X)
+    X[:, 12] = scaled_X.reshape(1, -1)
+
+    scaled_X = X[:, 5].reshape(-1, 1)
+    scaler = MinMaxScaler().fit(scaled_X)
+    scaled_X = scaler.transform(scaled_X)
+    X[:, 5] = scaled_X.reshape(1, -1)
+
+    scaled_X = X[:, 6].reshape(-1, 1)
+    scaler = MinMaxScaler().fit(scaled_X)
+    scaled_X = scaler.transform(scaled_X)
+    X[:, 6] = scaled_X.reshape(1, -1)
+
+    X_df = pd.DataFrame(X)
+    X_df.columns = attr
+    y_df = pd.DataFrame(y)
+    print("")
+    print("Number of data attributes: ", len(attr.tolist()))
+    if len(drops) > 0:
+        print(len(drops), " data attributes are removed.")
+        X_df.drop(columns=drops, inplace=True)
+    print("Number of data attributes in Traing/Testing process: ", X_df.shape[1])
+
+    return X_df, y_df
+
 def show_data(X, y):
 
-    y = np.argmax(y.values, axis=1)
+    y = np.argmax(y, axis=1)
     from sklearn.decomposition import PCA
     pca = PCA(n_components=3)
     clf = pca.fit_transform(X)
@@ -131,13 +183,14 @@ class Net(nn.Module):
         self.dp1 = nn.Dropout(dropout)
         self.linear2 = nn.Linear(H, 64)
         self.linear3 = nn.Linear(64, D_out)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Prediction
     def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        x = self.dp1(x)
-        x = torch.tanh(self.linear2(x))
-        x = self.linear3(x)
+        x = torch.relu(self.linear1(x)).to(device=self.device)
+        x = self.dp1(x).to(device=self.device)
+        x = torch.tanh(self.linear2(x)).to(device=self.device)
+        x = self.linear3(x).to(device=self.device)
 
         return x
 
@@ -165,6 +218,8 @@ def train(model, criterion, train_loader, optimizer):
     success = 0
     model.train()
     for i, (x, y) in enumerate(train_loader):
+        x = x.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        y = y.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         pred = model(x)
         loss = criterion(pred, y)
         train_loss += loss
@@ -184,6 +239,9 @@ def validate(model, val_loader):
     success =0
     with torch.no_grad():
         for x, y in val_loader:
+            x = x.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            y = y.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        
             pred = model(x)
             loss += criterion(pred, y)
             result = pred.argmax(dim=1, keepdim=True)
@@ -191,7 +249,9 @@ def validate(model, val_loader):
             success += result.eq(label).sum().item()
 
     return loss/len(val_loader.dataset) , success/len(val_loader.dataset)
+ 
 
+from sklearn.metrics import f1_score  
 def test(model, test_loader):
     model.eval()
     loss = 0
@@ -199,12 +259,17 @@ def test(model, test_loader):
     total_result = []
     with torch.no_grad():
         for x, y in test_loader:
+            x = x.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            y = y.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            
             pred = model(x)
             loss += criterion(pred, y)
+                
             result = pred.argmax(dim=1, keepdim=True)
             label = y.argmax(dim=1, keepdim=True)
             success += result.eq(label).sum().item()
-
+                                  
+            
             for r, l in zip(result, label):
                 if r == l:
                     total_result.append('pass')
@@ -213,8 +278,43 @@ def test(model, test_loader):
 
     return loss/len(test_loader.dataset), success/len(test_loader.dataset), total_result
 
+import torchmetrics
+from torchmetrics.classification import BinaryRecall
+
+def test_various_metric(model, test_loader):
+    model.eval()
+    loss = 0
+    success =0
+    total_f1 = 0
+    total_recall = 0
+    with torch.no_grad():
+        for x, y in test_loader:
+            x = x.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            y = y.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+            
+            pred = model(x)
+            
+            result = pred.argmax(dim=1, keepdim=True).squeeze()
+            label = y.argmax(dim=1, keepdim=True).squeeze()
+            
+            f1 = torchmetrics.F1Score(task="binary")
+            recall = BinaryRecall()
+            f1_ = f1(result, label)
+            # print(result.shape)
+            # print(label.shape)
+            total_f1+=f1_
+            # print(f1_)
+    return total_f1/len(test_loader)
+
+
 
 learning_rate = 0.0001
 criterion = nn.CrossEntropyLoss()
 
 best_validation_loss = float('inf')
+
+# def precision(outputs, labels):
+#     op = outputs.cpu()
+#     la = labels.cpu()
+#     _, preds = torch.max(op, dim=1)
+#     return torch.tensor(precision_score(la,preds, average=‘weighted’))
