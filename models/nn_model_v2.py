@@ -299,12 +299,12 @@ def test_various_metric(model, test_loader):
             
             f1 = torchmetrics.F1Score(task="binary")
             recall = BinaryRecall()
-            f1_ = f1(result, label)
-            # print(result.shape)
-            # print(label.shape)
-            total_f1+=f1_
+
+            total_f1+=f1(result, label)
+            total_recall+=recall(result,label)
+            # print(recall(result,label))
             # print(f1_)
-    return total_f1/len(test_loader)
+    return total_f1/len(test_loader), total_recall/len(test_loader)
 
 
 
