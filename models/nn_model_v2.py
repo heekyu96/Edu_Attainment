@@ -290,7 +290,7 @@ def test(model, test_loader):
 import torchmetrics
 from torchmetrics.classification import BinaryRecall, BinaryPrecision
 
-def test_various_metric(model, test_loader):
+def test_various_metric(model, test_loader, is_pass=False):
     model.eval()
     loss = 0
     success =0
@@ -303,6 +303,10 @@ def test_various_metric(model, test_loader):
             y = y.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
             
             pred = model(x)
+            
+            if is_pass:
+                pred = torch.flip(pred,[0,1])
+                y = torch.flip(y,[0,1])
             
             result = pred.argmax(dim=1, keepdim=True).squeeze()
             label = y.argmax(dim=1, keepdim=True).squeeze()
