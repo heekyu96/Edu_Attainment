@@ -25,7 +25,16 @@ def check_all_attr():
     for i in range(0, len(n), offset):	# 인덱스 0을 시작으로 n 길이의 전 까지, 10씩
 	    print(f'{i+1: 3d} ~{i+offset: 3d} | '," , ".join(["'"+x+"'" for x in n[i:i+offset]]))
     
-    
+def check_all_attr_new():
+    df = pd.read_csv('dataset/newdropdata.csv')
+    data = df.values
+    attr = df.columns[2:]
+    n = attr.tolist()
+    offset = 5
+    print("")
+    print("==Data attributes included==")
+    for i in range(0, len(n), offset):	# 인덱스 0을 시작으로 n 길이의 전 까지, 10씩
+	    print(f'{i+1: 3d} ~{i+offset: 3d} | '," , ".join(["'"+x+"'" for x in n[i:i+offset]]))
     
 def dataload_preprocessing(drops=[]):
     df = pd.read_csv('dataset/HSLS_2023_short.csv')
@@ -279,7 +288,7 @@ def test(model, test_loader):
     return loss/len(test_loader.dataset), success/len(test_loader.dataset), total_result
 
 import torchmetrics
-from torchmetrics.classification import BinaryRecall
+from torchmetrics.classification import BinaryRecall, BinaryPrecision
 
 def test_various_metric(model, test_loader):
     model.eval()
@@ -287,6 +296,7 @@ def test_various_metric(model, test_loader):
     success =0
     total_f1 = 0
     total_recall = 0
+    total_precision = 0
     with torch.no_grad():
         for x, y in test_loader:
             x = x.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
@@ -299,12 +309,14 @@ def test_various_metric(model, test_loader):
             
             f1 = torchmetrics.F1Score(task="binary")
             recall = BinaryRecall()
+            precision = BinaryPrecision()
 
             total_f1+=f1(result, label)
             total_recall+=recall(result,label)
+            total_precision+=precision(result,label)
             # print(recall(result,label))
             # print(f1_)
-    return total_f1/len(test_loader), total_recall/len(test_loader)
+    return total_f1/len(test_loader), total_recall/len(test_loader),total_precision/len(test_loader)
 
 
 
